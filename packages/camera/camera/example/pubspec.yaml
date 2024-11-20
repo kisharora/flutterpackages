@@ -29,8 +29,11 @@ dev_dependencies:
     sdk: flutter
 
 dependency_overrides:
+  camera_android_camerax:
+    path: ../../camera_android_camerax
   camera_web:
     path: ../../camera_web
+
 
 flutter:
   uses-material-design: true
