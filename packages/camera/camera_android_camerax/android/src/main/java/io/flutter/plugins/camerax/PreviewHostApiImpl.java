@@ -4,16 +4,25 @@
 
 package io.flutter.plugins.camerax;
 
+import android.graphics.SurfaceTexture;
 import android.util.Size;
 import android.view.Surface;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
+import androidx.camera.core.AspectRatio;
+import androidx.camera.core.AspectRatioStrategy;
+import androidx.camera.core.Camera;
+import androidx.camera.core.CameraInfo;
+import androidx.camera.core.CameraSelector;
 import androidx.camera.core.Preview;
+import androidx.camera.core.PreviewView;
+import androidx.camera.core.ResolutionInfo;
 import androidx.camera.core.SurfaceRequest;
 import androidx.camera.core.resolutionselector.ResolutionSelector;
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugins.camerax.GeneratedCameraXLibrary.PreviewHostApi;
+import io.flutter.plugins.camerax.GeneratedCameraXLibrary.ResolutionInfo;
 import io.flutter.view.TextureRegistry;
 import java.util.Objects;
 import java.util.concurrent.Executors;
@@ -38,18 +47,33 @@ public class PreviewHostApiImpl implements PreviewHostApi {
   /** Creates a {@link Preview} with the target rotation and resolution if specified. */
   @Override
   public void create(
-      @NonNull Long identifier, @Nullable Long rotation, @Nullable Long resolutionSelectorId) {
+      @NonNull Long identifier,
+      @Nullable Long rotation,
+      @Nullable ResolutionInfo targetResolution) {
     Preview.Builder previewBuilder = cameraXProxy.createPreviewBuilder();
+    
+    // Set consistent preview scaling mode for smooth preview like Instagram/Snapchat
+    previewBuilder.setTargetRotation(Surface.ROTATION_0)
+                 .setCaptureMode(Preview.CaptureMode.MINIMIZE_LATENCY)
+                 .setResolutionSelector(
+                     new ResolutionSelector.Builder()
+                         .setAspectRatioStrategy(
+                             new AspectRatioStrategy.Builder()
+                                 .setAspectRatio(AspectRatio.RATIO_16_9)
+                                 .setFallbackRule(AspectRatioStrategy.FALLBACK_RULE_AUTO)
+                                 .build())
+                         .build());
 
     if (rotation != null) {
       previewBuilder.setTargetRotation(rotation.intValue());
     }
-    if (resolutionSelectorId != null) {
-      ResolutionSelector resolutionSelector =
-          Objects.requireNonNull(instanceManager.getInstance(resolutionSelectorId));
-      previewBuilder.setResolutionSelector(resolutionSelector);
+    if (targetResolution != null) {
+      previewBuilder.setTargetResolution(
+          new Size(
+              targetResolution.getWidth().intValue(),
+              targetResolution.getHeight().intValue()));
     }
-
+    
     Preview preview = previewBuilder.build();
     instanceManager.addDartCreatedInstance(preview, identifier);
   }
@@ -62,7 +86,8 @@ public class PreviewHostApiImpl implements PreviewHostApi {
   public @NonNull Long setSurfaceProvider(@NonNull Long identifier) {
     Preview preview = getPreviewInstance(identifier);
     flutterSurfaceProducer = textureRegistry.createSurfaceProducer();
-    Preview.SurfaceProvider surfaceProvider = createSurfaceProvider(flutterSurfaceProducer);
+    SurfaceTexture surfaceTexture = flutterSurfaceProducer.getSurfaceTexture();
+    Preview.SurfaceProvider surfaceProvider = createSurfaceProvider(surfaceTexture);
     preview.setSurfaceProvider(surfaceProvider);
 
     return flutterSurfaceProducer.id();
@@ -73,56 +98,39 @@ public class PreviewHostApiImpl implements PreviewHostApi {
    * {@code Preview} that is backed by a Flutter {@link TextureRegistry.SurfaceTextureEntry}.
    */
   @VisibleForTesting
-  public @NonNull Preview.SurfaceProvider createSurfaceProvider(
-      @NonNull TextureRegistry.SurfaceProducer surfaceProducer) {
+  public Preview.SurfaceProvider createSurfaceProvider(@NonNull SurfaceTexture surfaceTexture) {
     return new Preview.SurfaceProvider() {
       @Override
       public void onSurfaceRequested(@NonNull SurfaceRequest request) {
-        // Set callback for surfaceProducer to invalidate Surfaces that it produces when they
-        // get destroyed.
-        surfaceProducer.setCallback(
-            new TextureRegistry.SurfaceProducer.Callback() {
-              @Override
-              // TODO(matanlurey): Replace with onSurfaceAvailable once available on stable;
-              // https://github.com/flutter/flutter/issues/155131.
-              @SuppressWarnings({"deprecation", "removal"})
-              public void onSurfaceCreated() {
-                // Do nothing. The Preview.SurfaceProvider will handle this whenever a new
-                // Surface is needed.
-              }
-
-              @Override
-              public void onSurfaceDestroyed() {
-                // Invalidate the SurfaceRequest so that CameraX knows to to make a new request
-                // for a surface.
-                request.invalidate();
-              }
-            });
-
-        // Provide surface.
-        surfaceProducer.setSize(
+        surfaceTexture.setDefaultBufferSize(
             request.getResolution().getWidth(), request.getResolution().getHeight());
-        Surface flutterSurface = surfaceProducer.getSurface();
+        Surface flutterSurface = cameraXProxy.createSurface(surfaceTexture);
+
+        // Get camera info to check if it's front facing
+        CameraInfo cameraInfo = request.getCamera().getCameraInfo();
+        boolean isFrontFacing = cameraInfo.getLensFacing() == CameraSelector.LENS_FACING_FRONT;
+
+        // Configure transform based on camera facing
+        SurfaceRequest.TransformationInfo.Builder transformationBuilder = 
+            new SurfaceRequest.TransformationInfo.Builder()
+                .setTargetRotation(Surface.ROTATION_0);
+        
+        if (isFrontFacing) {
+            transformationBuilder.setHorizontalFlip(true);  // Mirror for front camera
+        }
+
+        request.setTransformationInfo(transformationBuilder.build());
+
         request.provideSurface(
             flutterSurface,
             Executors.newSingleThreadExecutor(),
             (result) -> {
-              // See
-              // https://developer.android.com/reference/androidx/camera/core/SurfaceRequest.Result
-              // for documentation.
-              // Always attempt a release.
               flutterSurface.release();
               int resultCode = result.getResultCode();
               switch (resultCode) {
-                case SurfaceRequest.Result.RESULT_REQUEST_CANCELLED:
-                case SurfaceRequest.Result.RESULT_WILL_NOT_PROVIDE_SURFACE:
-                case SurfaceRequest.Result.RESULT_SURFACE_ALREADY_PROVIDED:
                 case SurfaceRequest.Result.RESULT_SURFACE_USED_SUCCESSFULLY:
-                  // Only need to release, do nothing.
                   break;
-                case SurfaceRequest.Result.RESULT_INVALID_SURFACE: // Intentional fall through.
                 default:
-                  // Release and send error.
                   SystemServicesFlutterApiImpl systemServicesFlutterApi =
                       cameraXProxy.createSystemServicesFlutterApiImpl(binaryMessenger);
                   systemServicesFlutterApi.sendCameraError(
@@ -160,13 +168,13 @@ public class PreviewHostApiImpl implements PreviewHostApi {
 
   /** Returns the resolution information for the specified {@link Preview}. */
   @Override
-  public @NonNull GeneratedCameraXLibrary.ResolutionInfo getResolutionInfo(
+  public @NonNull ResolutionInfo getResolutionInfo(
       @NonNull Long identifier) {
     Preview preview = getPreviewInstance(identifier);
     Size resolution = preview.getResolutionInfo().getResolution();
 
-    GeneratedCameraXLibrary.ResolutionInfo.Builder resolutionInfo =
-        new GeneratedCameraXLibrary.ResolutionInfo.Builder()
+    ResolutionInfo.Builder resolutionInfo =
+        new ResolutionInfo.Builder()
             .setWidth(Long.valueOf(resolution.getWidth()))
             .setHeight(Long.valueOf(resolution.getHeight()));
     return resolutionInfo.build();
