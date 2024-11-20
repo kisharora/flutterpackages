@@ -9,6 +9,9 @@ import android.content.Context;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.Preview;
+import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.lifecycle.LifecycleOwner;
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.embedding.engine.plugins.activity.ActivityAware;
@@ -142,7 +145,17 @@ public final class CameraAndroidCameraxPlugin implements FlutterPlugin, Activity
 
   @Override
   public void onAttachedToEngine(@NonNull FlutterPluginBinding flutterPluginBinding) {
-    pluginBinding = flutterPluginBinding;
+    BinaryMessenger binaryMessenger = flutterPluginBinding.getBinaryMessenger();
+    TextureRegistry textureRegistry = flutterPluginBinding.getTextureRegistry();
+    
+    instanceManager = new InstanceManager();
+    // cameraXProxy = new CameraXProxy();
+    
+    previewHostApiImpl = new PreviewHostApiImpl(binaryMessenger, instanceManager, textureRegistry);
+    videoCaptureHostApiImpl = new VideoCaptureHostApiImpl(binaryMessenger, instanceManager);
+    
+    GeneratedCameraXLibrary.PreviewHostApi.setup(binaryMessenger, previewHostApiImpl);
+    GeneratedCameraXLibrary.VideoCaptureHostApi.setup(binaryMessenger, videoCaptureHostApiImpl);
   }
 
   @Override

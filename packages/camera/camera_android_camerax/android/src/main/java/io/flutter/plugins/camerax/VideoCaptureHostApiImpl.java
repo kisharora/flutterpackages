@@ -4,20 +4,25 @@
 
 package io.flutter.plugins.camerax;
 
+import android.view.Surface;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.annotation.VisibleForTesting;
 import androidx.camera.core.AspectRatio;
 import androidx.camera.core.AspectRatioStrategy;
 import androidx.camera.core.Camera;
 import androidx.camera.core.CameraInfo;
 import androidx.camera.core.CameraSelector;
+import androidx.camera.core.Preview;
 import androidx.camera.core.ResolutionSelector;
+import androidx.camera.video.QualitySelector;
 import androidx.camera.video.Recorder;
+import androidx.camera.video.Recording;
 import androidx.camera.video.VideoCapture;
+import androidx.camera.video.VideoRecordEvent;
+import androidx.camera.core.impl.VideoCaptureConfig;
 import io.flutter.plugin.common.BinaryMessenger;
-import io.flutter.plugins.camerax.GeneratedCameraXLibrary.VideoCaptureHostApi;
 import io.flutter.plugins.camerax.GeneratedCameraXLibrary.QualitySelectorHostApi;
+import io.flutter.plugins.camerax.GeneratedCameraXLibrary.VideoCaptureHostApi;
 import java.util.Objects;
 
 public class VideoCaptureHostApiImpl implements VideoCaptureHostApi {

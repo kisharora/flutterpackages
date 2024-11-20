@@ -19,6 +19,7 @@ import androidx.camera.core.Preview;
 import androidx.camera.core.PreviewView;
 import androidx.camera.core.ResolutionInfo;
 import androidx.camera.core.SurfaceRequest;
+import androidx.camera.core.UseCase;
 import androidx.camera.core.resolutionselector.ResolutionSelector;
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugins.camerax.GeneratedCameraXLibrary.PreviewHostApi;
@@ -48,34 +49,17 @@ public class PreviewHostApiImpl implements PreviewHostApi {
   @Override
   public void create(
       @NonNull Long identifier,
-      @Nullable Long rotation,
+      @Nullable Long targetRotation,
       @Nullable ResolutionInfo targetResolution) {
-    Preview.Builder previewBuilder = cameraXProxy.createPreviewBuilder();
+    Preview.Builder previewBuilder = new Preview.Builder();
     
-    // Set consistent preview scaling mode for smooth preview like Instagram/Snapchat
-    previewBuilder.setTargetRotation(Surface.ROTATION_0)
-                 .setCaptureMode(Preview.CaptureMode.MINIMIZE_LATENCY)
-                 .setResolutionSelector(
-                     new ResolutionSelector.Builder()
-                         .setAspectRatioStrategy(
-                             new AspectRatioStrategy.Builder()
-                                 .setAspectRatio(AspectRatio.RATIO_16_9)
-                                 .setFallbackRule(AspectRatioStrategy.FALLBACK_RULE_AUTO)
-                                 .build())
-                         .build());
+    if (targetRotation != null) {
+      previewBuilder.setTargetRotation(targetRotation.intValue());
+    }
 
-    if (rotation != null) {
-      previewBuilder.setTargetRotation(rotation.intValue());
-    }
-    if (targetResolution != null) {
-      previewBuilder.setTargetResolution(
-          new Size(
-              targetResolution.getWidth().intValue(),
-              targetResolution.getHeight().intValue()));
-    }
-    
     Preview preview = previewBuilder.build();
-    instanceManager.addDartCreatedInstance(preview, identifier);
+    
+    instanceManager.addInstance(preview, identifier);
   }
 
   /**
